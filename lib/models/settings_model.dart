@@ -32,7 +32,7 @@ class AppSettings {
   const AppSettings({
     this.defaultArrowColor = Colors.blue,
     this.defaultTextColor = Colors.black,
-    this.defaultFontSize = 16.0,
+    this.defaultFontSize = 10.0,
     this.defaultArrowWidth = 3.0,
     this.defaultDashedLine = false,
     this.defaultShowArrowStyle = true,

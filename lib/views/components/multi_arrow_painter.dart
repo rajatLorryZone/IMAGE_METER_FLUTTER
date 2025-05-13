@@ -165,7 +165,7 @@ class MultiArrowPainter extends CustomPainter {
       text: formattedLabel,
       style: TextStyle(
         color: arrow.textColor, 
-        fontSize: 16.0, // Default font size
+        fontSize: arrow.fontSize, // Use the arrow's font size property
         fontWeight: FontWeight.bold,
         backgroundColor: const Color.fromARGB(180, 255, 255, 255), // More visible background
         letterSpacing: 1.0,

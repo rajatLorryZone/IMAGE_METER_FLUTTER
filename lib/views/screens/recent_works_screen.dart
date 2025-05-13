@@ -1,9 +1,8 @@
-import 'dart:developer';
-
 import 'package:flutter/material.dart';
 import 'dart:io';
 import '../../models/project_model.dart';
 import '../../services/project_service.dart';
+import '../../services/settings_service.dart';
 import '../home_view.dart';
 
 class RecentWorksScreen extends StatefulWidget {
@@ -94,12 +93,7 @@ class _RecentWorksScreenState extends State<RecentWorksScreen> {
               const SizedBox(height: 16),
               ElevatedButton(
                 onPressed: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) =>  ArrowDrawPage(),
-                    ),
-                  ).then((_) => _loadRecentProjects());
+                  _showCreateNewProjectDialog(context);
                 },
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.indigo,
@@ -137,9 +131,130 @@ class _RecentWorksScreenState extends State<RecentWorksScreen> {
     );
   }
 
+  void _showCreateNewProjectDialog(BuildContext context) async {
+    final SettingsService settingsService = SettingsService();
+    final settings = await settingsService.getSettings();
+    final TextEditingController nameController = TextEditingController();
+    
+    // Default color
+    Color selectedColor = settings.defaultBackgroundColor;
+    
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return StatefulBuilder(
+          builder: (context, setState) {
+            return AlertDialog(
+              title: const Text('Create New Project'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: nameController,
+                    decoration: const InputDecoration(
+                      hintText: 'Enter project name',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  const Text('Select Background Color:'),
+                  const SizedBox(height: 8),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    children: [
+                      _buildColorOption(context, settings.defaultBackgroundColor, selectedColor, (color) {
+                        setState(() => selectedColor = color);
+                      }),
+                      _buildColorOption(context, Colors.black, selectedColor, (color) {
+                        setState(() => selectedColor = color);
+                      }),
+                      _buildColorOption(context, Colors.white, selectedColor, (color) {
+                        setState(() => selectedColor = color);
+                      }),
+                      _buildColorOption(context, Colors.blue.shade100, selectedColor, (color) {
+                        setState(() => selectedColor = color);
+                      }),
+                      _buildColorOption(context, Colors.grey.shade300, selectedColor, (color) {
+                        setState(() => selectedColor = color);
+                      }),
+                    ],
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('Cancel'),
+                ),
+                ElevatedButton(
+                  onPressed: () {
+                    Navigator.pop(context);
+                    final projectName = nameController.text.isNotEmpty ? nameController.text : 'New Project';
+                    _createNewProject(context, projectName, selectedColor);
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.indigo,
+                    foregroundColor: Colors.white,
+                  ),
+                  child: const Text('Create'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildColorOption(
+    BuildContext context, 
+    Color color, 
+    Color selectedColor, 
+    Function(Color) onSelected
+  ) {
+    final isSelected = color.value == selectedColor.value;
+    final primaryColor = Colors.indigo;
+    
+    return GestureDetector(
+      onTap: () => onSelected(color),
+      child: Container(
+        width: 36,
+        height: 36,
+        decoration: BoxDecoration(
+          color: color,
+          shape: BoxShape.circle,
+          border: Border.all(
+            color: isSelected ? primaryColor : Colors.grey,
+            width: isSelected ? 3 : 1,
+          ),
+          boxShadow: isSelected
+              ? [
+                  BoxShadow(
+                    color: primaryColor.withOpacity(0.3),
+                    blurRadius: 8,
+                    spreadRadius: 2,
+                  )
+                ]
+              : null,
+        ),
+      ),
+    );
+  }
+
+  void _createNewProject(BuildContext context, String name, Color backgroundColor) {
+    // Navigate to drawing page with blank canvas
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => ArrowDrawPage(
+          projectName: name,
+          backgroundColor: backgroundColor,
+        ),
+      ),
+    ).then((_) => _loadRecentProjects()); // Reload projects after coming back
+  }
+
   Widget _buildProjectCard(Project project) {
-
-
     return Card(
       clipBehavior: Clip.antiAlias,
       elevation: 3,

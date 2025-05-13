@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 // import 'package:image_meter/views/test_view.dart';
 import 'package:path_provider/path_provider.dart';
-
 import 'models/arrow_model.dart';
 import 'models/color_adapter.dart';
 import 'models/project_model.dart';
@@ -38,7 +37,7 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Image Meter',
+      title: 'OpalSpace',
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(
           seedColor: primaryColor,

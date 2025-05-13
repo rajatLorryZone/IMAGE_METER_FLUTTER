@@ -2,11 +2,9 @@ import 'package:flutter/material.dart';
 import 'dart:io';
 import '../models/site_model.dart';
 import '../models/project_model.dart';
-import '../models/settings_model.dart';
 import '../services/site_service.dart';
 import '../services/project_service.dart';
 import '../services/settings_service.dart';
-import '../utils/constants.dart';
 import 'home_view.dart'; // Needed for ArrowDrawPage
 
 class SiteListView extends StatefulWidget {
@@ -815,6 +813,7 @@ class _SiteDetailViewState extends State<SiteDetailView> {
           builder: (context) => ArrowDrawPage(
             projectName: name,
             backgroundColor: backgroundColor,
+            siteId: widget.site.id, // Pass the site ID to the drawing page
           ),
         ),
       );
@@ -823,9 +822,11 @@ class _SiteDetailViewState extends State<SiteDetailView> {
       if (result != null && result is Project) {
         // Add the new project to this site
         await _siteService.addProjectToSite(widget.site.id, result.id);
-        // Refresh the project list
-        _loadProjects();
       }
+      
+      // Always refresh the project list when returning from project creation
+      // This ensures we see the latest changes
+      await _loadProjects();
     } catch (e) {
       print('Error creating project: $e');
     }
@@ -901,9 +902,10 @@ class _SiteDetailViewState extends State<SiteDetailView> {
       MaterialPageRoute(
         builder: (context) => ArrowDrawPage(
           existingProject: project,
+          siteId: widget.site.id, // Pass the site ID to ensure proper association
         ),
       ),
-    ).then((_) => _loadProjects());
+    ).then((_) => _loadProjects()); // Reload projects when returning
   }
 
   Future<void> _removeProjectFromSite(Project project) async {

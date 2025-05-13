@@ -3,11 +3,12 @@ import 'dart:io';
 import 'package:image_meter/models/arrow_model.dart';
 import 'package:image_meter/models/project_model.dart';
 import 'package:image_meter/services/project_service.dart';
+import 'package:image_meter/services/site_service.dart'; // Add site service import
 import 'package:path_provider/path_provider.dart';
 import 'dart:typed_data';
 
 // Helper function to save projects that can be included in home_view.dart
-Future<void> saveProject({
+Future<Project?> saveProject({
   required BuildContext context,
   required String projectName,
   required List<ArrowModel> arrows,
@@ -15,9 +16,9 @@ Future<void> saveProject({
   required File? imageFile,
   required Uint8List? screenshotData,
   String? projectId,
+  String? siteId, // Site ID parameter to associate project with site
 }) async {
   final projectService = ProjectService();
-  bool isLoading = true;
   
   try {
     String? thumbnailPath;
@@ -85,7 +86,7 @@ Future<void> saveProject({
             TextField(
               controller: nameController,
               decoration: InputDecoration(
-                labelText: 'Project Name',
+                hintText: 'Enter project name',
                 border: OutlineInputBorder(),
               ),
             ),
@@ -110,7 +111,7 @@ Future<void> saveProject({
     
     if (shouldSave) {
       // Save project to Hive with the high-quality screenshot data for thumbnail
-      await projectService.saveProject(
+      final savedProject = await projectService.saveProject(
         name: nameController.text,
         imagePath: imagePath,
         arrows: arrows,
@@ -119,17 +120,28 @@ Future<void> saveProject({
         existingId: projectId,
       );
       
+      // Add project to site if siteId is provided
+      if (siteId != null && siteId.isNotEmpty) {
+        // Import site service if not already done
+        final siteService = SiteService();
+        await siteService.addProjectToSite(siteId, savedProject.id);
+      }
+      
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Project saved successfully')),
       );
       
-      return;
+      // Return the saved project
+      return savedProject;
     }
+    
+    // Return null if user canceled
+    return null;
   } catch (e) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text('Error saving project: $e')),
     );
-  } finally {
-    isLoading = false;
+    // Return null if there was an error
+    return null;
   }
 }

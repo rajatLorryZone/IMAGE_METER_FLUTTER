@@ -48,7 +48,7 @@ class ArrowModel {
     this.unit = "cm",
     this.arrowColor = Colors.blue,
     this.textColor = Colors.black,
-    this.fontSize = 16.0,
+    this.fontSize = 12.0,
     this.arrowWidth = 3.0,
     this.isDashed = false,
     this.showArrowStyle = true,

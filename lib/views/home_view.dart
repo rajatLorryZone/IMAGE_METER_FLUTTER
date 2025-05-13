@@ -1,3 +1,5 @@
+import 'dart:developer';
+
 import 'package:flutter/material.dart';
 import 'dart:io';
 import 'dart:math' as math;
@@ -63,12 +65,14 @@ class ArrowDrawPage extends StatefulWidget {
   final Project? existingProject;
   final String projectName;
   final Color backgroundColor;
+  final String? siteId; // Add site ID parameter
 
   const ArrowDrawPage({
     Key? key,
     this.existingProject,
     this.projectName = 'Untitled Project',
     this.backgroundColor = Colors.black,
+    this.siteId, // Add site ID parameter
   }) : super(key: key);
 
   @override
@@ -360,6 +364,15 @@ class _ArrowDrawPageState extends State<ArrowDrawPage> {
       setState(() {
         _settings = settings;
         _isSettingsLoaded = true;
+        
+        log("Font Size: ${settings.defaultFontSize}");
+        log("Arrow Width: ${settings.defaultArrowWidth}");
+        log("Arrow Color: ${settings.defaultArrowColor}");
+        log("Text Color: ${settings.defaultTextColor}");
+        log("Background Color: ${settings.defaultBackgroundColor}");
+        log("Dashed Line: ${settings.defaultDashedLine}");
+
+        
         // Apply background color from settings if not overridden by parameters
         if (widget.backgroundColor == Colors.black) {
           _backgroundColor = settings.defaultBackgroundColor;
@@ -489,7 +502,7 @@ class _ArrowDrawPageState extends State<ArrowDrawPage> {
       Uint8List? screenshotData = await _captureScreenshot(quality: 2.5);
       
       // Call the helper function to save the project
-      await saveProject(
+      final savedProject = await saveProject(
         context: context,
         projectName: _projectName,
         arrows: arrows,
@@ -497,7 +510,13 @@ class _ArrowDrawPageState extends State<ArrowDrawPage> {
         imageFile: _imageFile,
         screenshotData: screenshotData,
         projectId: _projectId,
+        siteId: widget.siteId, // Pass the site ID if available
       );
+      
+      // If this is a new project and we're coming from a site view, return the saved project
+      if (savedProject != null && widget.siteId != null && Navigator.canPop(context)) {
+        Navigator.pop(context, savedProject);
+      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -779,7 +798,8 @@ class _ArrowDrawPageState extends State<ArrowDrawPage> {
   Color labelColor = arrow.arrowColor;
   Color textColor = arrow.textColor;
   double width = arrow.arrowWidth;
-  bool isDashed = arrow.isDashed  ; 
+  bool isDashed = arrow.isDashed;
+  bool showArrowStyle = arrow.showArrowStyle;
   
   // Function to update arrow properties in real-time
   void updateArrowInRealTime() {
@@ -792,6 +812,7 @@ class _ArrowDrawPageState extends State<ArrowDrawPage> {
         fontSize: fontSize,
         arrowWidth: width,
         isDashed: isDashed,
+        showArrowStyle: showArrowStyle,
       );
     });
   }
@@ -974,9 +995,9 @@ class _ArrowDrawPageState extends State<ArrowDrawPage> {
                       Expanded(
                         child: Slider(
                           value: fontSize,
-                          min: 12,
-                          max: 24,
-                          divisions: 12,
+                          min: 5,
+                          max: 50,
+                          divisions: 45,
                           label: fontSize.round().toString(),
                           activeColor: primaryColor,
                           thumbColor: primaryColor,
@@ -1013,7 +1034,6 @@ class _ArrowDrawPageState extends State<ArrowDrawPage> {
                     ],
                   ),
                   Row(
-                    // mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       const Text('Dashed Line: '),
                       Switch(
@@ -1022,6 +1042,21 @@ class _ArrowDrawPageState extends State<ArrowDrawPage> {
                         onChanged: (value) {
                           setState(() {
                             isDashed = value;
+                            updateArrowInRealTime();
+                          });
+                        },
+                      ),
+                    ],
+                  ),
+                  Row(
+                    children: [
+                      const Text('Show Arrow Head: '),
+                      Switch(
+                        value: showArrowStyle,
+                        activeColor: primaryColor,
+                        onChanged: (value) {
+                          setState(() {
+                            showArrowStyle = value;
                             updateArrowInRealTime();
                           });
                         },
@@ -1059,6 +1094,7 @@ class _ArrowDrawPageState extends State<ArrowDrawPage> {
                     'fontSize': fontSize,
                     'width': width,
                     'isDashed': isDashed,
+                    'showArrowStyle': showArrowStyle,
                   });
                   Navigator.of(context).pop();
                 },
@@ -1090,6 +1126,7 @@ class _ArrowDrawPageState extends State<ArrowDrawPage> {
           fontSize: result['fontSize'],
           arrowWidth: result['width'],
           isDashed: result['isDashed'],
+          showArrowStyle: result['showArrowStyle'],
         );
       });
     }
@@ -1395,14 +1432,20 @@ class _ArrowDrawPageState extends State<ArrowDrawPage> {
                   
                   // If we're not manipulating an existing arrow, create a new one
                   setState(() {
+
+                    // load default values 
                     // Create a new arrow
                     currentArrow = ArrowModel(
+                      
+                      isDashed: _settings.defaultDashedLine,
+                      showArrowStyle: _settings.defaultShowArrowStyle,
                       start: details.localPosition,
                       end: details.localPosition,
-                      arrowColor: primaryColor,
-                      textColor: Colors.black,
-                      fontSize: 16.0,
-                      arrowWidth: 3.0,
+                      arrowColor: _settings.defaultArrowColor,
+                      textColor: _settings.defaultTextColor,
+                      fontSize: _settings.defaultFontSize,
+                      arrowWidth: _settings.defaultArrowWidth,
+                      unit: _settings.defaultUnit,
                     );
                     selectedArrowIndex = null;
                   });
@@ -1613,6 +1656,27 @@ class _ArrowDrawPageState extends State<ArrowDrawPage> {
               child: const Icon(Icons.photo_library),
             ),
           ],
+          // if (_imageFile != null) ...[
+          //   // Reomve Image Button
+          //   FloatingActionButton(
+          //     onPressed: (){
+          //       setState(() {
+          //         _imageFile = null;
+          //         _imageRect = null;
+          //       });
+
+          //       setState(() {
+                  
+          //       });
+          //     },
+          //     backgroundColor: Colors.red,
+          //     foregroundColor: Colors.white,
+          //     heroTag: "btn4",
+          //     child: const Icon(Icons.image_not_supported_outlined),
+          //   ),
+          //   const SizedBox(height: 16),
+            
+          // ]
         ],
       ),
     );
