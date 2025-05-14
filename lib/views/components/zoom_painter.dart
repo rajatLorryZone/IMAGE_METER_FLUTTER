@@ -10,9 +10,9 @@ class ZoomPainter extends CustomPainter {
   final Color backgroundColor;
   final Offset currentPoint;
   final double zoomFactor;
-  final ImageProvider? image;
   final ui.Image? imageObject;
   final Rect? imageRect;
+  final Offset panOffset; // New parameter for gesture panning
 
   ZoomPainter({
     required this.arrows,
@@ -21,9 +21,9 @@ class ZoomPainter extends CustomPainter {
     required this.backgroundColor,
     required this.currentPoint,
     required this.zoomFactor,
-    this.image,
     this.imageObject,
     this.imageRect,
+    this.panOffset = Offset.zero, // Default to no panning
   });
 
   @override
@@ -35,48 +35,43 @@ class ZoomPainter extends CustomPainter {
     // Save the canvas state before transformations
     canvas.save();
     
-    // VIEWPORT APPROACH: We treat the zoom view as a viewport
-    // that shows a small portion of the main canvas but magnified
-    
-    // Step 1: Define the viewport size in the original coordinate system
-    // This is the area around the current point that we want to magnify
+    // Calculate the viewport dimensions (the area we want to magnify)
     final viewportWidth = size.width / zoomFactor;
     final viewportHeight = size.height / zoomFactor;
     
-    // Step 2: Calculate the viewport rectangle centered at the current point
+    // Calculate the viewport rectangle centered at the current point
     final viewportRect = Rect.fromCenter(
       center: currentPoint,
       width: viewportWidth,
       height: viewportHeight
     );
     
-    // Step 3: Set up the transformation that maps the viewport to the zoom window
-    // This transformation centers the current point and applies the zoom factor
+    // Set up the transformation for the zoom view
     
-    // First, center the zoom view (translate to the center of our window)
+    // 1. First translate to the center of our zoom window
     canvas.translate(size.width / 2, size.height / 2);
     
-    // Next, apply the zoom factor to magnify
+    // 2. Apply the zoom factor
     canvas.scale(zoomFactor);
     
-    // Finally, translate so that currentPoint is at the center
-    canvas.translate(-currentPoint.dx, -currentPoint.dy);
+    // 3. Translate to position the current point at the center, adjusted by pan offset
+    canvas.translate(-currentPoint.dx + panOffset.dx, -currentPoint.dy + panOffset.dy);
     
-    // Step 4: Now paint the content within the viewport
+    // Now paint the content within the viewport
     
-    // 4a. If we have an image, paint it exactly where it appears in the main view
-    if (imageObject != null) {
-      // Paint the image first (as background)
-      _paintDirectImageViewport(canvas, imageObject!, viewportRect);
-    } else if (image != null) {
-      // Fallback for placeholder when only image provider is available
-      _paintImagePlaceholder(canvas);
+    // If we have an image, paint it in its exact position
+    if (imageObject != null && imageRect != null) {
+      // Calculate the source rectangle - the part of the image to display
+      _paintImage(canvas, imageObject!, imageRect!);
+    } else {
+      // If no image, draw a grid background
+      _paintNoImageBackground(canvas, viewportRect);
     }
     
-    // Draw grid for reference (positioned above the image)
+    // Draw the reference grid on top
     _drawGrid(canvas, currentPoint, size, zoomFactor);
     
-    // Draw completed arrows
+    // Draw all arrows
     for (int i = 0; i < arrows.length; i++) {
       final arrow = arrows[i];
       final isSelected = selectedArrowIndex == i;
@@ -88,24 +83,22 @@ class ZoomPainter extends CustomPainter {
         ..style = PaintingStyle.stroke;
       
       if (arrow.isDashed) {
-        // Draw a dashed line
         _drawDashedLine(canvas, arrow.start, arrow.end, paint);
       } else {
-        // Draw a straight line
         canvas.drawLine(arrow.start, arrow.end, paint);
       }
       
       // Draw arrowhead
       _drawArrowhead(canvas, arrow.start, arrow.end, arrow.arrowColor, arrow.arrowWidth);
       
-      // Draw the endpoints with different colors for clarity
+      // Highlight the endpoints
       final startPointPaint = Paint()..color = Colors.blue;
       canvas.drawCircle(arrow.start, 5.0 / zoomFactor, startPointPaint);
       
       final endPointPaint = Paint()..color = Colors.red;
       canvas.drawCircle(arrow.end, 5.0 / zoomFactor, endPointPaint);
       
-      // If selected, draw with a halo
+      // Add special highlighting for selected arrows
       if (isSelected) {
         final highlightPaint = Paint()
           ..color = Colors.yellow.withOpacity(0.5)
@@ -121,144 +114,106 @@ class ZoomPainter extends CustomPainter {
       final paint = Paint()
         ..color = currentArrow!.arrowColor
         ..strokeWidth = currentArrow!.arrowWidth
-        ..strokeCap = StrokeCap.round;
+        ..strokeCap = StrokeCap.round
+        ..style = PaintingStyle.stroke;
       
-      canvas.drawLine(currentArrow!.start, currentArrow!.end, paint);
+      if (currentArrow!.isDashed) {
+        _drawDashedLine(canvas, currentArrow!.start, currentArrow!.end, paint);
+      } else {
+        canvas.drawLine(currentArrow!.start, currentArrow!.end, paint);
+      }
       
-      // Draw the current arrow endpoints
-      final startPointPaint = Paint()..color = Colors.blue;
-      canvas.drawCircle(currentArrow!.start, 5.0 / zoomFactor, startPointPaint);
+      // Only draw arrowhead if the arrow is long enough
+      if ((currentArrow!.end - currentArrow!.start).distance > 10) {
+        _drawArrowhead(canvas, currentArrow!.start, currentArrow!.end, 
+            currentArrow!.arrowColor, currentArrow!.arrowWidth);
+      }
       
-      final endPointPaint = Paint()..color = Colors.red;
-      canvas.drawCircle(currentArrow!.end, 5.0 / zoomFactor, endPointPaint);
+      // Highlight current arrow endpoints with larger, more visible circles
+      final startPointPaint = Paint()..color = Colors.blue.withOpacity(0.8);
+      canvas.drawCircle(currentArrow!.start, 6.0 / zoomFactor, startPointPaint);
       
-      // Draw arrowhead for current arrow
-      _drawArrowhead(canvas, currentArrow!.start, currentArrow!.end, currentArrow!.arrowColor, currentArrow!.arrowWidth);
+      final endPointPaint = Paint()..color = Colors.red.withOpacity(0.8);
+      canvas.drawCircle(currentArrow!.end, 6.0 / zoomFactor, endPointPaint);
     }
     
     // Restore the canvas state
     canvas.restore();
   }
   
-  // Paint the actual image when we have a direct ui.Image object
-  // This method is now replaced by _paintDirectImageViewport
-  
-  // Direct viewport-based approach for painting the image
-  void _paintDirectImageViewport(Canvas canvas, ui.Image image, Rect viewportRect) {
-    // Get the original image dimensions
-    final double srcWidth = image.width.toDouble();
-    final double srcHeight = image.height.toDouble();
+  void _paintImage(Canvas canvas, ui.Image image, Rect imageRect) {
+    final imagePaint = Paint();
     
-    // Use high quality paint
-    final paint = Paint()
-      ..filterQuality = FilterQuality.high
-      ..isAntiAlias = true;
-    
-    // The key insight: We need to render the image exactly as it appears in the main view
-    // and let the canvas transformations handle the zooming and positioning
-    
-    if (imageRect == null) {
-      // If we don't have image rect info, just center the image
-      final srcRect = Rect.fromLTWH(0, 0, srcWidth, srcHeight);
-      canvas.drawImageRect(
-        image, 
-        srcRect, 
-        Rect.fromLTWH(-srcWidth/2, -srcHeight/2, srcWidth, srcHeight),
-        paint
-      );
-      return;
-    }
-    
-    // Source rectangle - the entire original image
-    final srcRect = Rect.fromLTWH(0, 0, srcWidth, srcHeight);
-    
-    // CRITICAL CHANGE: Draw the image at exactly the same position as in the main view
-    // This ensures perfect synchronization because we're using the same coordinate system
-    // Our canvas transformations will ensure the correct part is visible and zoomed
-    canvas.drawImageRect(image, srcRect, imageRect!, paint);
+    // Draw the image in its exact position on screen
+    // The canvas transformation will handle showing only the zoomed portion
+    canvas.drawImageRect(
+      image,
+      Rect.fromLTWH(0, 0, image.width.toDouble(), image.height.toDouble()),
+      imageRect,
+      imagePaint,
+    );
   }
   
-  // This method is now replaced by _paintDirectImageViewport
-  
-  // Paint a placeholder when we only have an ImageProvider but no loaded image yet
-  void _paintImagePlaceholder(Canvas canvas) {
-    // For a zoom preview with an image background, we'll draw a rectangular area
-    // that represents where the image would be
-    final imageRectSize = Size(300, 300); // A reasonable default size
+  void _paintNoImageBackground(Canvas canvas, Rect viewportRect) {
+    // Draw a light grid pattern as background when there's no image
+    final bgGridPaint = Paint()
+      ..color = Colors.grey.withOpacity(0.1)
+      ..strokeWidth = 0.5;
     
-    // Create a Paint object for the image placeholder
-    final imagePlaceholderPaint = Paint()
-      ..color = Colors.grey.withOpacity(0.2)
-      ..style = PaintingStyle.fill;
-      
-    // Draw a rectangle to represent the image area
-    final imageRect = Rect.fromCenter(
-      center: Offset.zero, // Center of our zoomed view
-      width: imageRectSize.width,
-      height: imageRectSize.height,
-    );
+    // Draw a more spaced out background grid (every 50 pixels)
+    const bgGridSpacing = 50.0;
     
-    canvas.drawRect(imageRect, imagePlaceholderPaint);
+    // Calculate grid bounds to cover the viewport
+    final startX = (viewportRect.left ~/ bgGridSpacing) * bgGridSpacing - bgGridSpacing;
+    final endX = (viewportRect.right ~/ bgGridSpacing + 2) * bgGridSpacing;
+    final startY = (viewportRect.top ~/ bgGridSpacing) * bgGridSpacing - bgGridSpacing;
+    final endY = (viewportRect.bottom ~/ bgGridSpacing + 2) * bgGridSpacing;
     
-    // Draw a border around the image area
-    final imageBorderPaint = Paint()
-      ..color = Colors.grey.withOpacity(0.5)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.0 / zoomFactor;
-      
-    canvas.drawRect(imageRect, imageBorderPaint);
+    // Draw vertical background grid lines
+    for (double x = startX; x <= endX; x += bgGridSpacing) {
+      canvas.drawLine(
+        Offset(x, viewportRect.top - bgGridSpacing),
+        Offset(x, viewportRect.bottom + bgGridSpacing),
+        bgGridPaint,
+      );
+    }
     
-    // Optional: draw some image-like pattern or icon
-    final iconPaint = Paint()
-      ..color = Colors.grey.withOpacity(0.5)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 2.0 / zoomFactor;
-      
-    // Draw a simple image icon
-    final iconPath = Path();
-    final iconSize = 40.0;
-    iconPath.moveTo(-iconSize/2, -iconSize/2);
-    iconPath.lineTo(iconSize/2, -iconSize/2);
-    iconPath.lineTo(iconSize/2, iconSize/2);
-    iconPath.lineTo(-iconSize/2, iconSize/2);
-    iconPath.close();
-    
-    // Add a mountain-like shape to indicate an image
-    iconPath.moveTo(-iconSize/2, iconSize/2);
-    iconPath.lineTo(-iconSize/4, 0);
-    iconPath.lineTo(0, iconSize/4);
-    iconPath.lineTo(iconSize/4, -iconSize/4);
-    iconPath.lineTo(iconSize/2, iconSize/2);
-    
-    canvas.drawPath(iconPath, iconPaint);
+    // Draw horizontal background grid lines
+    for (double y = startY; y <= endY; y += bgGridSpacing) {
+      canvas.drawLine(
+        Offset(viewportRect.left - bgGridSpacing, y),
+        Offset(viewportRect.right + bgGridSpacing, y),
+        bgGridPaint,
+      );
+    }
   }
 
   void _drawGrid(Canvas canvas, Offset point, Size size, double zoom) {
     final gridPaint = Paint()
-      ..color = Colors.grey.withOpacity(0.3)
+      ..color = Colors.grey.withOpacity(0.4) // Slightly more visible
       ..strokeWidth = 0.5 / zoom;
     
-    // Calculate the visible area
+    // Calculate the visible area in the zoom view
     final visibleRect = Rect.fromCenter(
       center: point,
       width: size.width / zoom,
       height: size.height / zoom,
     );
     
-    // Calculate grid spacing (10 pixels in the normal view)
+    // Use a 10-pixel grid spacing
     const gridSpacing = 10.0;
     
-    // Calculate the starting and ending grid lines
-    final startX = (visibleRect.left ~/ gridSpacing) * gridSpacing;
-    final endX = (visibleRect.right ~/ gridSpacing + 1) * gridSpacing;
-    final startY = (visibleRect.top ~/ gridSpacing) * gridSpacing;
-    final endY = (visibleRect.bottom ~/ gridSpacing + 1) * gridSpacing;
+    // Calculate grid bounds
+    final startX = (visibleRect.left ~/ gridSpacing - 1) * gridSpacing;
+    final endX = (visibleRect.right ~/ gridSpacing + 2) * gridSpacing;
+    final startY = (visibleRect.top ~/ gridSpacing - 1) * gridSpacing;
+    final endY = (visibleRect.bottom ~/ gridSpacing + 2) * gridSpacing;
     
     // Draw vertical grid lines
     for (double x = startX; x <= endX; x += gridSpacing) {
       canvas.drawLine(
-        Offset(x, visibleRect.top),
-        Offset(x, visibleRect.bottom),
+        Offset(x, visibleRect.top - gridSpacing),
+        Offset(x, visibleRect.bottom + gridSpacing),
         gridPaint,
       );
     }
@@ -266,9 +221,34 @@ class ZoomPainter extends CustomPainter {
     // Draw horizontal grid lines
     for (double y = startY; y <= endY; y += gridSpacing) {
       canvas.drawLine(
-        Offset(visibleRect.left, y),
-        Offset(visibleRect.right, y),
+        Offset(visibleRect.left - gridSpacing, y),
+        Offset(visibleRect.right + gridSpacing, y),
         gridPaint,
+      );
+    }
+    
+    // Draw axes with different color at x=0 and y=0 if they're in view
+    if (startX <= 0 && 0 <= endX) {
+      final axisPaint = Paint()
+        ..color = Colors.blue.withOpacity(0.6)
+        ..strokeWidth = 1.0 / zoom;
+      
+      canvas.drawLine(
+        Offset(0, visibleRect.top - gridSpacing), 
+        Offset(0, visibleRect.bottom + gridSpacing),
+        axisPaint,
+      );
+    }
+    
+    if (startY <= 0 && 0 <= endY) {
+      final axisPaint = Paint()
+        ..color = Colors.red.withOpacity(0.6)
+        ..strokeWidth = 1.0 / zoom;
+      
+      canvas.drawLine(
+        Offset(visibleRect.left - gridSpacing, 0),
+        Offset(visibleRect.right + gridSpacing, 0),
+        axisPaint,
       );
     }
   }
@@ -342,6 +322,9 @@ class ZoomPainter extends CustomPainter {
            oldDelegate.currentArrow != currentArrow ||
            oldDelegate.backgroundColor != backgroundColor ||
            oldDelegate.currentPoint != currentPoint ||
-           oldDelegate.zoomFactor != zoomFactor;
+           oldDelegate.zoomFactor != zoomFactor ||
+           oldDelegate.imageObject != imageObject ||
+           oldDelegate.imageRect != imageRect ||
+           oldDelegate.panOffset != panOffset; // Also repaint when pan offset changes
   }
 }

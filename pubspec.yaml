@@ -49,6 +49,7 @@ dependencies:
   build_runner: ^2.4.15
   provider: ^6.1.5
   widget_zoom: ^0.0.4
+  vector_math: ^2.1.4
   # flutter_box_transform: ^0.4.7
 
 dev_dependencies:
