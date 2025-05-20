@@ -701,7 +701,7 @@ class _SiteDetailViewState extends State<SiteDetailView> {
   void _showCreateNewProjectDialog(BuildContext context) async {
     final SettingsService settingsService = SettingsService();
     final settings = await settingsService.getSettings();
-    final TextEditingController nameController = TextEditingController(text: 'New Project');
+    final TextEditingController nameController = TextEditingController(text: '');
     
     // Default color
     Color selectedColor = settings.defaultBackgroundColor;

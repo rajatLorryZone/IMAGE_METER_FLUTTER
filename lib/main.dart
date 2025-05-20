@@ -1,5 +1,4 @@
 
-
 import 'package:flutter/material.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 // import 'package:image_meter/views/test_view.dart';
@@ -29,6 +28,7 @@ void main() async {
   
   // Start the app
   runApp(const MyApp());
+  
 }
 
 class MyApp extends StatelessWidget {

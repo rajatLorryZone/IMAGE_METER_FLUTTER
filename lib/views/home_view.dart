@@ -129,17 +129,156 @@ class _ArrowDrawPageState extends State<ArrowDrawPage> {
       150.0; // Distance threshold to trigger repositioning
 
   // For image zooming and panning
-  bool _isZooming = false;
-  bool _isPanning = false;
-  double _currentScale = 1.0;
-  double _baseScale = 1.0;
-  Offset _lastFocalPoint = Offset.zero;
-  Offset _focalPoint = Offset.zero;
   Matrix4 _transformMatrix = Matrix4.identity();
-  // Track translation separately for smoother panning
+  double _currentScale = 1.0;
+  Offset _currentTranslation = Offset.zero;
+  
+  // For gesture handling
+  double _baseScale = 1.0;
+  Offset _baseTranslation = Offset.zero;
+  Offset _normalizedFocalPoint = Offset.zero;
+  Offset _lastFocalPoint = Offset.zero;
+  bool _isZooming = false;
+  Offset _focalPoint = Offset.zero;
+  
+  // For preserving state between modes
+  Matrix4 _savedTransformMatrix = Matrix4.identity();
+  
+  // For compatibility with existing code
   Offset _imageTranslation = Offset.zero;
-  // Separate the scale and translation parts for better control
-  double _persistentScale = 1.0;
+  
+  // Toggle between drawing and zoom mode
+  void _toggleDrawingMode() {
+    setState(() {
+      if (_isDrawingModeEnabled) {
+        // Save current transform before switching to zoom mode
+        _savedTransformMatrix = Matrix4.identity()
+          ..translate(_currentTranslation.dx, _currentTranslation.dy)
+          ..scale(_currentScale);
+      } else {
+        // Restore the saved transform when entering drawing mode
+        final translation = _savedTransformMatrix.getTranslation();
+        _currentTranslation = Offset(translation.x, translation.y);
+        _currentScale = _savedTransformMatrix.getMaxScaleOnAxis();
+      }
+      _isDrawingModeEnabled = !_isDrawingModeEnabled;
+      _updateTransformMatrix();
+    });
+  }
+  
+  // Handle scale start for zooming
+  void _handleScaleStart(ScaleStartDetails details) {
+    if (!_isDrawingModeEnabled) {
+      setState(() {
+        _baseScale = _currentScale;
+        _baseTranslation = _currentTranslation;
+        _lastFocalPoint = details.focalPoint;
+        _isZooming = false;
+        
+        // Calculate the focal point relative to the image
+        final focalPointRelativeToImage = details.focalPoint - _currentTranslation;
+        _normalizedFocalPoint = Offset(
+          focalPointRelativeToImage.dx / _currentScale,
+          focalPointRelativeToImage.dy / _currentScale,
+        );
+      });
+    }
+  }
+  
+  // Handle scale update for zooming and panning
+  void _handleScaleUpdate(ScaleUpdateDetails details) {
+    if (!_isDrawingModeEnabled) {
+      setState(() {
+        // Handle zooming and panning together
+        if (details.scale != 1.0) {
+          _isZooming = true;
+          // Zoom with focal point
+          _currentScale = (_baseScale * details.scale).clamp(0.5, 5.0);
+          
+          // Calculate the focal point in the image's coordinate space
+          final focalPointInImageSpace = Offset(
+            _normalizedFocalPoint.dx * _currentScale,
+            _normalizedFocalPoint.dy * _currentScale,
+          );
+          
+          // Adjust the translation to keep the focal point under the finger
+          _currentTranslation = details.focalPoint - focalPointInImageSpace;
+        } else {
+          // Handle pure panning
+          final delta = details.focalPoint - _lastFocalPoint;
+          _currentTranslation = _baseTranslation + delta;
+        }
+        
+        // Update the last focal point for the next update
+        _lastFocalPoint = details.focalPoint;
+        
+        // Apply constraints to keep the image within bounds
+        _applyImageConstraints();
+        
+        // Update the transform matrix
+        _updateTransformMatrix();
+      });
+    }
+  }
+  
+  // Apply constraints to keep the image within bounds
+  void _applyImageConstraints() {
+    if (_imageRect == null) return;
+    
+    final screenWidth = MediaQuery.of(context).size.width;
+    final screenHeight = MediaQuery.of(context).size.height;
+    
+    // Calculate the scaled image dimensions
+    final scaledWidth = _imageRect!.width * _currentScale;
+    final scaledHeight = _imageRect!.height * _currentScale;
+    
+    // Calculate the maximum allowed translation
+    final maxDx = math.max(0.0, (scaledWidth - screenWidth) / 2);
+    final maxDy = math.max(0.0, (scaledHeight - screenHeight) / 2);
+    
+    // Calculate the minimum translation needed to keep the image on screen
+    final minDx = -maxDx;
+    final minDy = -maxDy;
+    
+    // Apply constraints to keep the image on screen
+    _currentTranslation = Offset(
+      _currentTranslation.dx.clamp(minDx, maxDx),
+      _currentTranslation.dy.clamp(minDy, maxDy),
+    );
+  }
+  
+  // Update the transform matrix with current translation and scale
+  void _updateTransformMatrix() {
+    _transformMatrix = Matrix4.identity()
+      ..translate(_currentTranslation.dx, _currentTranslation.dy)
+      ..scale(_currentScale);
+      
+    // Update the image translation for compatibility with existing code
+    _imageTranslation = _currentTranslation;
+  }
+  
+  // Handle scale end - finalize the transform
+  void _handleScaleEnd(ScaleEndDetails details) {
+    if (!_isDrawingModeEnabled) {
+      setState(() {
+        _isZooming = false;
+        
+        // Ensure we have valid values
+        _currentScale = _currentScale.clamp(0.5, 5.0);
+        _baseScale = _currentScale;
+        _baseTranslation = _currentTranslation;
+        
+        // Apply any final constraints
+        _applyImageConstraints();
+        _updateTransformMatrix();
+        
+        // Save the final state
+        _savedTransformMatrix = Matrix4.identity()
+          ..translate(_currentTranslation.dx, _currentTranslation.dy)
+          ..scale(_currentScale);
+      });
+    }
+  }
 
   // For drawing mode toggle
   bool _isDrawingModeEnabled = true; // By default, drawing mode is enabled
@@ -155,7 +294,7 @@ class _ArrowDrawPageState extends State<ArrowDrawPage> {
       await _loadSettings();
       await _initializeProjectData();
     } catch (e) {
-      print('Error during initialization: $e');
+      // print('Error during initialization: $e');
     } finally {
       // Set loading to false whether successful or not
       if (mounted) setState(() => _isLoading = false);
@@ -657,17 +796,24 @@ class _ArrowDrawPageState extends State<ArrowDrawPage> {
 
     try {
       // Get the downloads directory
-      Directory? downloadsDir;
+      Directory downloadsDir;
       if (Platform.isAndroid) {
         // For Android, use the external storage downloads directory
-        downloadsDir = Directory('/storage/emulated/0/Download');
-        if (!await downloadsDir.exists()) {
+        final externalDir = Directory('/storage/emulated/0/Download');
+        if (await externalDir.exists()) {
+          downloadsDir = externalDir;
+        } else {
           // Fallback to the app's documents directory
           downloadsDir = await getApplicationDocumentsDirectory();
         }
       } else {
         // For iOS and other platforms
         downloadsDir = await getApplicationDocumentsDirectory();
+      }
+      
+      // Ensure the directory exists
+      if (!await downloadsDir.exists()) {
+        await downloadsDir.create(recursive: true);
       }
 
       // Create simple filename with timestamp
@@ -1297,15 +1443,15 @@ class _ArrowDrawPageState extends State<ArrowDrawPage> {
                 ),
                 
                 // Export as PDF
-                _buildOptionItem(
-                  Icons.picture_as_pdf,
-                  'Export as PDF',
-                  primaryColor,
-                  () {
-                    Navigator.pop(context);
-                    _exportAsPDF();
-                  },
-                ),
+                // _buildOptionItem(
+                //   Icons.picture_as_pdf,
+                //   'Export as PDF',
+                //   primaryColor,
+                //   () {
+                //     Navigator.pop(context);
+                //    _exportAsPDF();
+                //   },
+                // ),
                 
                 // Save as Image
                 _buildOptionItem(
@@ -1495,11 +1641,7 @@ class _ArrowDrawPageState extends State<ArrowDrawPage> {
            IconButton(
             icon: _isDrawingModeEnabled ? Icon(Icons.edit) :Icon( Icons.zoom_in),
             tooltip: 'Mode',
-            onPressed: () {
-               setState(() {
-                      _isDrawingModeEnabled = !_isDrawingModeEnabled;
-                    });
-            },
+            onPressed: _toggleDrawingMode,
           ),
           // _buildOptionItem(
           //         Icons.edit,
@@ -1532,80 +1674,9 @@ class _ArrowDrawPageState extends State<ArrowDrawPage> {
             child: LayoutBuilder(
               builder: (context, constraints) {
                 return GestureDetector(
-                  // Handle zooming gestures
-                  onScaleStart: (details) {
-                    if (!_isDrawingModeEnabled) {
-                      setState(() {
-                        // Store the focal point and current scale
-                        _lastFocalPoint = details.focalPoint;
-                        _baseScale = _currentScale;
-                        
-                        // Store current translation from the matrix
-                        // If this is our first gesture, _imageTranslation will be zero
-                        if (!_isZooming && !_isPanning) {
-                          // Get the current translation values from the matrix
-                          final translationX = _transformMatrix.getTranslation().x;
-                          final translationY = _transformMatrix.getTranslation().y;
-                          _imageTranslation = Offset(translationX, translationY);
-                        }
-                        
-                        // Track if we're zooming or just panning
-                        _isPanning = true;
-                        // Initially assume panning, onScaleUpdate will determine if we're also zooming
-                      });
-                    }
-                  },
-                  onScaleUpdate: (details) {
-                    if (!_isDrawingModeEnabled) {
-                      setState(() {
-                        // Check if we're zooming (scale != 1.0) or just panning
-                        _isZooming = details.scale != 1.0;
-                        
-                        // Calculate the new scale, but apply constraints
-                        // Store it in _persistentScale for smooth transitions
-                        _persistentScale = (_baseScale * details.scale).clamp(0.5, 5.0);
-                        _currentScale = _persistentScale; // Keep current scale updated too
-                        
-                        // Calculate translation based on finger movement
-                        final dx = details.focalPoint.dx - _lastFocalPoint.dx;
-                        final dy = details.focalPoint.dy - _lastFocalPoint.dy;
-                        
-                        // Apply speed adjustment for higher zoom levels (smoother at high zoom)
-                        final movementDamping = _persistentScale > 2.0 ? 1.0 / _persistentScale : 1.0;
-                        
-                        // Update image translation with the new movement
-                        // This accumulates all pan movements during this gesture session
-                        _imageTranslation += Offset(dx * movementDamping, dy * movementDamping);
-                        
-                        // Build a new transformation matrix that combines scaling and translation
-                        final updatedMatrix = Matrix4.identity()
-                          // First apply translation from all previous and current pan gestures
-                          ..translate(_imageTranslation.dx, _imageTranslation.dy)
-                          // Then apply the current scale factor
-                          ..scale(_persistentScale);
-                        
-                        // Update the transform matrix that will be applied to the image
-                        _transformMatrix = updatedMatrix;
-                        
-                        // Store focal point for next update
-                        _lastFocalPoint = details.focalPoint;
-                        
-                        // Hide the zoom preview when using direct image zoom
-                        _showZoomPreview = false;
-                      });
-                    }
-                  },
-                  onScaleEnd: (details) {
-                    if (!_isDrawingModeEnabled) {
-                      setState(() {
-                        // Gestures are done, but we keep the current scale and translation
-                        // for the next gesture to continue from this state
-                        _isPanning = false;
-                        _isZooming = false;
-                        _baseScale = _persistentScale; // Store final scale for next gesture
-                      });
-                    }
-                  },
+                  onScaleStart: _handleScaleStart,
+                  onScaleUpdate: _handleScaleUpdate,
+                  onScaleEnd: _handleScaleEnd,
                   child: Transform(
                     transform: _transformMatrix,
                     alignment: Alignment.center,
@@ -1669,63 +1740,73 @@ class _ArrowDrawPageState extends State<ArrowDrawPage> {
                     return GestureDetector(
                       // Handle zooming gestures
                       onScaleStart: (details) {
-                        setState(() {
-                          _lastFocalPoint = details.focalPoint;
-                          _baseScale = _currentScale;
-                          _isZooming = true;
-                        });
+                        if (!_isDrawingModeEnabled) {
+                          setState(() {
+                            _lastFocalPoint = details.focalPoint;
+                            _baseScale = _currentScale;
+                            _baseTranslation = _currentTranslation;
+                            _isZooming = false;
+                            
+                            // Calculate the focal point relative to the image
+                            final focalPointRelativeToImage = details.focalPoint - _currentTranslation;
+                            _normalizedFocalPoint = Offset(
+                              focalPointRelativeToImage.dx / _currentScale,
+                              focalPointRelativeToImage.dy / _currentScale,
+                            );
+                          });
+                        }
                       },
                       onScaleUpdate: (details) {
                         if (!_isDrawingModeEnabled) {
-                          // Only handle zooming when drawing mode is disabled
                           setState(() {
-                            // Set zooming state to true during scaling
-                            _isZooming = true;
-                            
-                            // Limit scale to reasonable bounds
-                            _currentScale = (_baseScale * details.scale).clamp(0.5, 5.0);
-                            _focalPoint = details.focalPoint;
-                            
-                            // Calculate the translation - reduce movement speed when zooming in for better control
-                            double movementDamping = _isZooming && _currentScale > 1.5 ? 0.7 : 1.0;
-                            final dx = (details.focalPoint.dx - _lastFocalPoint.dx) * movementDamping;
-                            final dy = (details.focalPoint.dy - _lastFocalPoint.dy) * movementDamping;
-                            
-                            // Create a new matrix for this update that applies both translation and scaling
-                            // We need to be careful with the order of operations here
-                            final updatedMatrix = Matrix4.identity();
-                            
-                            // Calculate proper focal point for scaling
-                            final scale = _currentScale / _baseScale;
-                            
-                            // Scale around focal point for better zoom behavior
-                            final focalPointDX = _focalPoint.dx;
-                            final focalPointDY = _focalPoint.dy;
-                            
-                            // First translate to focal point, then scale, then translate back
-                            updatedMatrix.translate(focalPointDX, focalPointDY);
-                            updatedMatrix.scale(scale);
-                            updatedMatrix.translate(-focalPointDX + dx, -focalPointDY + dy);
-                            
-                            // Update the transform matrix
-                            _transformMatrix = updatedMatrix;
+                            // Handle zooming and panning together
+                            if (details.scale != 1.0) {
+                              _isZooming = true;
+                              // Zoom with focal point
+                              _currentScale = (_baseScale * details.scale).clamp(0.5, 5.0);
+                              
+                              // Calculate the focal point in the image's coordinate space
+                              final focalPointInImageSpace = Offset(
+                                _normalizedFocalPoint.dx * _currentScale,
+                                _normalizedFocalPoint.dy * _currentScale,
+                              );
+                              
+                              // Adjust the translation to keep the focal point under the finger
+                              _currentTranslation = details.focalPoint - focalPointInImageSpace;
+                            } else {
+                              // Handle pure panning
+                              final delta = details.focalPoint - _lastFocalPoint;
+                              _currentTranslation = _baseTranslation + delta;
+                            }
                             
                             // Update the last focal point for the next update
                             _lastFocalPoint = details.focalPoint;
                             
+                            // Apply constraints to keep the image within bounds
+                            _applyImageConstraints();
+                            
+                            // Update the transform matrix
+                            _updateTransformMatrix();
+                            
                             // Hide zoom preview when using gesture zoom
-                            if (_isZooming) {
-                              _showZoomPreview = false;
-                            }
+                            _showZoomPreview = false;
                           });
                         }
                       },
                       onScaleEnd: (details) {
-                        setState(() {
-                          _isZooming = false;
-                          // Reset the base scale for the next zoom gesture
-                          _baseScale = _currentScale;
-                        });
+                        if (!_isDrawingModeEnabled) {
+                          setState(() {
+                            _isZooming = false;
+                            // Save the current state for the next gesture
+                            _baseScale = _currentScale;
+                            _baseTranslation = _currentTranslation;
+                            
+                            // Save the final state
+                            _savedTransformMatrix = Matrix4.identity()
+                              ..translate(_currentTranslation.dx, _currentTranslation.dy)
+                              ..scale(_currentScale);
+                          });
+                        }
                       },
                       child: Transform(
                         transform: _transformMatrix,

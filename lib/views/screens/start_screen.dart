@@ -197,7 +197,7 @@ class _StartScreenState extends State<StartScreen> {
   }
 
   void _showCreateNewProjectDialog(BuildContext context) {
-    final TextEditingController nameController = TextEditingController(text: 'New Project');
+    final TextEditingController nameController = TextEditingController(text: '');
     
     // For color selection
 
