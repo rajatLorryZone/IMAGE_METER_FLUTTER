@@ -1,5 +1,9 @@
-import 'package:flutter/material.dart';
 import 'dart:io';
+import 'package:flutter/material.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:pdf/pdf.dart';
+import 'package:share_plus/share_plus.dart';
+import 'package:path_provider/path_provider.dart';
 import '../models/site_model.dart';
 import '../models/project_model.dart';
 import '../services/site_service.dart';
@@ -149,6 +153,11 @@ class _SiteListViewState extends State<SiteListView> {
                         value: 'delete',
                         child: Text('Delete Site'),
                       ),
+
+                       const PopupMenuItem(
+                        value: 'pdf',
+                        child: Text('Share Site'),
+                      ),
                     ],
                   ),
                 ],
@@ -242,6 +251,91 @@ class _SiteListViewState extends State<SiteListView> {
       case 'delete':
         _showDeleteSiteDialog(site);
         break;
+      case 'pdf':
+        await _generateAndShareSitePdf(site);
+        break;
+    }
+  }
+
+  Future<void> _generateAndShareSitePdf(Site site) async {
+    // Show loading dialog
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return const Center(
+          child: CircularProgressIndicator(),
+        );
+      },
+    );
+
+    try {
+      // Get all projects for the site
+      final projects = await _siteService.getProjectsForSite(site.id);
+      
+      // Filter projects with valid thumbnail paths
+      final validProjects = projects.where((p) => p.thumbnailPath != null && p.thumbnailPath!.isNotEmpty).toList();
+      
+      if (validProjects.isEmpty) {
+        if (mounted) {
+          Navigator.of(context).pop(); // Close loading dialog
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('No projects with thumbnails found')),
+          );
+        }
+        return;
+      }
+
+      // Create PDF document with A4 pages
+      final pdf = pw.Document();
+      
+      // Add a page for each project
+      for (final project in validProjects) {
+        final imageFile = File(project.thumbnailPath!);
+        if (await imageFile.exists()) {
+          final imageBytes = await imageFile.readAsBytes();
+          final image = pw.MemoryImage(imageBytes);
+          
+          pdf.addPage(
+            pw.Page(
+              pageFormat: PdfPageFormat.a4,
+              margin: const pw.EdgeInsets.all(0),
+              build: (pw.Context context) {
+                return pw.Expanded(
+                  child: pw.Image(
+                    image,
+                    fit: pw.BoxFit.cover,
+                  ),
+                );
+              },
+            ),
+          );
+        }
+      }
+
+      // Save the PDF temporarily
+      final output = await getTemporaryDirectory();
+      final file = File('${output.path}/${site.name.replaceAll(' ', '_')}_projects.pdf');
+      await file.writeAsBytes(await pdf.save());
+
+      if (mounted) {
+        Navigator.of(context).pop(); // Close loading dialog
+        
+        // Share the PDF file
+        await Share.shareXFiles(
+          [XFile(file.path)],
+          text: 'Projects from ${site.name}',
+          subject: '${site.name} Projects',
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        Navigator.of(context).pop(); // Close loading dialog
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error generating PDF: $e')),
+        );
+      }
     }
   }
 
@@ -553,6 +647,10 @@ class _SiteDetailViewState extends State<SiteDetailView> {
                         const PopupMenuItem(
                           value: 'open',
                           child: Text('Open Project'),
+                        ),
+                        const PopupMenuItem(
+                          value: 'share',
+                          child: Text('Share Project'),
                         ),
                         const PopupMenuItem(
                           value: 'remove',
@@ -887,12 +985,94 @@ class _SiteDetailViewState extends State<SiteDetailView> {
       case 'open':
         _openProject(project);
         break;
+      case 'share':
+        await _generateAndShareProjectPdf(project);
+        break;
       case 'remove':
         _removeProjectFromSite(project);
         break;
       case 'delete':
         _showDeleteProjectDialog(project);
         break;
+    }
+  }
+
+  Future<void> _generateAndShareProjectPdf(Project project) async {
+    // Show loading dialog
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return const Center(
+          child: CircularProgressIndicator(),
+        );
+      },
+    );
+
+    try {
+      // Check if project has a valid image
+      final imagePath = project.thumbnailPath.isNotEmpty 
+          ? project.thumbnailPath 
+          : project.imagePath;
+          
+      if (imagePath == null || imagePath.isEmpty || !File(imagePath).existsSync()) {
+        if (mounted) {
+          Navigator.of(context).pop(); // Close loading dialog
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('No image found for this project')),
+          );
+        }
+        return;
+      }
+
+      // Create PDF document with A4 page
+      final pdf = pw.Document();
+      
+      // Add page with full-size image
+      final imageFile = File(imagePath);
+      if (await imageFile.exists()) {
+        final imageBytes = await imageFile.readAsBytes();
+        final image = pw.MemoryImage(imageBytes);
+        
+        pdf.addPage(
+          pw.Page(
+            pageFormat: PdfPageFormat.a4,
+            margin: const pw.EdgeInsets.all(0),
+            build: (pw.Context context) {
+              return pw.Expanded(
+                child: pw.Image(
+                  image,
+                  fit: pw.BoxFit.cover,
+                ),
+              );
+            },
+          ),
+        );
+      }
+
+      // Save the PDF temporarily
+      final output = await getTemporaryDirectory();
+      final file = File('${output.path}/${project.name.replaceAll(' ', '_')}_project.pdf');
+      await file.writeAsBytes(await pdf.save());
+
+      if (mounted) {
+        Navigator.of(context).pop(); // Close loading dialog
+        
+        // Share the PDF file
+        await Share.shareXFiles(
+          [XFile(file.path)],
+          text: 'Project: ${project.name}',
+          subject: '${project.name} Project',
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        Navigator.of(context).pop(); // Close loading dialog
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error generating PDF: $e')),
+        );
+      }
     }
   }
 

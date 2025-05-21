@@ -1638,10 +1638,17 @@ class _ArrowDrawPageState extends State<ArrowDrawPage> {
         backgroundColor: primaryColor,
         foregroundColor: Colors.white,
         actions: [
+
+         
            IconButton(
             icon: _isDrawingModeEnabled ? Icon(Icons.edit) :Icon( Icons.zoom_in),
             tooltip: 'Mode',
             onPressed: _toggleDrawingMode,
+          ),
+           IconButton(
+            icon: _isDrawingModeEnabled ? Icon(Icons.save) :Icon( Icons.zoom_in),
+            tooltip: 'Save',
+            onPressed: _saveProject,
           ),
           // _buildOptionItem(
           //         Icons.edit,
