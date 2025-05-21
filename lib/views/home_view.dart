@@ -1646,7 +1646,7 @@ class _ArrowDrawPageState extends State<ArrowDrawPage> {
             onPressed: _toggleDrawingMode,
           ),
            IconButton(
-            icon: _isDrawingModeEnabled ? Icon(Icons.save) :Icon( Icons.zoom_in),
+            icon:  Icon(Icons.save) ,
             tooltip: 'Save',
             onPressed: _saveProject,
           ),
